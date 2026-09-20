@@ -145,6 +145,42 @@ class RecursiveChunker:
         return [chunk for chunk in chunks if chunk]
 
 
+class HeadingChunker:
+    """Split Markdown by headings, then recursively split oversized sections.
+
+    The section heading is repeated in every fallback chunk so that each chunk
+    remains traceable to its policy section.
+    """
+
+    def __init__(self, chunk_size: int = 500) -> None:
+        self.chunk_size = chunk_size
+
+    def chunk(self, text: str) -> list[str]:
+        if not text or not text.strip():
+            return []
+
+        sections = re.split(r"(?m)(?=^#{1,6}\s+)", text.strip())
+        chunks: list[str] = []
+        for section in sections:
+            section = section.strip()
+            if not section:
+                continue
+            if len(section) <= self.chunk_size:
+                chunks.append(section)
+                continue
+
+            match = re.match(r"^(#{1,6}\s+[^\n]+)", section)
+            heading = match.group(1) if match else ""
+            body = section[match.end() :].strip() if match else section
+            body_limit = max(1, self.chunk_size - len(heading) - 1)
+            pieces = RecursiveChunker(chunk_size=body_limit).chunk(body)
+            chunks.extend(
+                f"{heading}\n{piece}" if heading else piece
+                for piece in pieces
+            )
+        return chunks
+
+
 def _dot(a: list[float], b: list[float]) -> float:
     return sum(x * y for x, y in zip(a, b))
 

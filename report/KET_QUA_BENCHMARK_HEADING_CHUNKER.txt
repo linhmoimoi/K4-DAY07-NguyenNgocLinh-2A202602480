@@ -1,5 +1,5 @@
-KẾT QUẢ BENCHMARK CÁ NHÂN — CUSTOM HEADING CHUNKER
-==================================================
+KẾT QUẢ BENCHMARK CÁ NHÂN — CUSTOM HEADING CHUNKER + AGENT
+==========================================================
 
 Thành viên: Nguyễn Ngọc Linh
 Ngày chạy: 2026-09-20
@@ -8,10 +8,10 @@ Ngày chạy: 2026-09-20
 ------------
 - Corpus: data/data/chinh-sach-tmdt/
 - Chunker: HeadingChunker(chunk_size=500)
-- Fallback: RecursiveChunker cho section dài; lặp lại heading ở mỗi mảnh con
+- Fallback: RecursiveChunker; lặp lại heading ở mỗi mảnh con
 - Embedding: sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2
-- Embedding provider: local
-- top_k: 3
+- Agent: KnowledgeBaseAgent.answer(top_k=3)
+- llm_fn: ExtractiveAnswerGenerator cục bộ, không dùng gold answer khi sinh
 - Tổng số chunk: 186
 
 Số chunk theo tài liệu:
@@ -26,114 +26,106 @@ Số chunk theo tài liệu:
 - thoi-gian-nhan-tien-hoan: 13
 - tra-hang-do-doi-y: 20
 
-2. CÁCH CHẤM
--------------
-- 2 điểm: tài liệu chuẩn ở hạng 1 và context top-3 chứa đủ thông tin bắt buộc.
-- 1 điểm: tài liệu chuẩn ở hạng 2 hoặc 3 và context top-3 chứa đủ thông tin bắt buộc.
-- 0 điểm: tài liệu chuẩn không có trong top-3 hoặc context thiếu thông tin bắt buộc.
-
-Việc kiểm tra dựa trên độ bao phủ nội dung của context top-3, chưa gọi LLM để
-sinh câu trả lời. Các cụm bắt buộc được giữ tương ứng với benchmark FixedSize:
-- Q1: "15 ngày", "24 giờ"
-- Q2: các trường hợp chính, gồm "bể vỡ"
-- Q3: "đổi hàng"
-- Q4: "24 giờ", "2 ngày làm việc"
-- Q5: "2 ngày", "Phản hồi đến Shopee"
+2. CÁCH CHẤM CÂU TRẢ LỜI AGENT
+--------------------------------
+- Agent truy xuất top-3, dựng prompt và gọi llm_fn để sinh answer từ context.
+- Gold answer chỉ được dùng sau khi sinh để kiểm tra answer và tính điểm.
+- 2 điểm: gold hạng 1 và answer có đủ thông tin bắt buộc.
+- 1 điểm: gold hạng 2–3 và answer có đủ thông tin bắt buộc.
+- 0 điểm: không có gold trong top-3 hoặc answer thiếu thông tin bắt buộc.
 
 3. KẾT QUẢ CHI TIẾT
 --------------------
 
 Q1 — Thời hạn gửi yêu cầu trả hàng/hoàn tiền
-Query:
-Người mua có tối đa bao lâu để gửi yêu cầu trả hàng/hoàn tiền đối với đơn hàng
-thông thường và thực phẩm tươi sống hoặc đông lạnh?
-
-- Top-1: chinh-sach-tra-hang-hoan-tien#11
-  Score: 0.8171
-  Nội dung chính: thời hạn 15 ngày kể từ khi giao hàng thành công.
-- Top-2: quy-dinh-chung-tra-hang-hoan-tien#3
-  Score: 0.7394
-  Nội dung chính: thực phẩm tươi sống/đông lạnh có thời hạn 24 giờ.
-- Top-3: huong-dan-gui-yeu-cau-tra-hang#6
-  Score: 0.7278
-  Nội dung chính: thời gian hoàn tiền sau khi yêu cầu được chấp nhận.
-- Tài liệu chuẩn trong top-3: CÓ, hạng 2
-- Context chứa đủ đáp án: CÓ
+Query: Người mua có tối đa bao lâu để gửi yêu cầu trả hàng/hoàn tiền đối với đơn hàng thông thường và thực phẩm tươi sống hoặc đông lạnh?
+- Top-1: chinh-sach-tra-hang-hoan-tien#11 (audience=both), score=0.8171
+- Top-2: quy-dinh-chung-tra-hang-hoan-tien#3 (audience=buyer), score=0.7394
+- Top-3: huong-dan-gui-yeu-cau-tra-hang#6 (audience=buyer), score=0.7278
+- Gold document trong top-3: CÓ, hạng 2
+- Câu trả lời thực tế của Agent:
+Theo context truy xuất:
+- [1] Riêng đối với các Sản Phẩm là thực phẩm tươi sống và đông lạnh, Người Mua cần gửi yêu cầu trả hàng/hoàn tiền trong vòng 24 giờ kể từ lúc đơn hàng được cập nhật giao hàng thành công
+- [1] Người Mua có thể gửi yêu cầu trả hàng/hoàn tiền trong vòng 15 (mười lăm) ngày kể từ lúc đơn hàng được cập nhật giao hàng thành công.
+- [2] Đối với đơn hàng giao thực phẩm tươi sống & đông lạnh (trừ lý do Chưa nhận được hàng): Trong vòng 24 giờ kể từ lúc đơn hàng được cập nhật trạng thái ‘Giao hàng thành công’.
+- [3] # Hướng dẫn gửi yêu cầu Trả hàng/Hoàn tiền
+- [3] Bạn cần trả lại sản phẩm bằng cách yêu cầu bưu tá đến lấy hoặc tự ra bưu cục gửi.
+- [3] Nếu yêu cầu được chấp nhận, tiền sẽ được hoàn trong 1 - 14 ngày làm việc, tùy thuộc vào phương thức thanh toán.
+- Kiểm tra answer: ĐỦ
 - Điểm: 1/2
 
 Q2 — Các trường hợp được yêu cầu trả hàng/hoàn tiền
-Query:
-Trong những trường hợp nào người mua có thể yêu cầu trả hàng/hoàn tiền? Hãy
-liệt kê ít nhất bốn trường hợp.
-
-- Top-1: chinh-sach-tra-hang-hoan-tien#12
-  Score: 0.6502
-- Top-2: chinh-sach-tra-hang-hoan-tien#40
-  Score: 0.6346
-- Top-3: chinh-sach-tra-hang-hoan-tien#46
-  Score: 0.6288
-- Tài liệu chuẩn trong top-3: KHÔNG
-- Context chứa đủ đáp án: KHÔNG; danh sách lý do bị phân tán qua nhiều chunk
+Query: Trong những trường hợp nào người mua có thể yêu cầu trả hàng/hoàn tiền? Hãy liệt kê ít nhất bốn trường hợp.
+- Top-1: chinh-sach-tra-hang-hoan-tien#12 (audience=both), score=0.6502
+- Top-2: chinh-sach-tra-hang-hoan-tien#40 (audience=both), score=0.6346
+- Top-3: chinh-sach-tra-hang-hoan-tien#46 (audience=both), score=0.6288
+- Gold document trong top-3: KHÔNG
+- Câu trả lời thực tế của Agent:
+Theo context truy xuất:
+- [1] Một số trường hợp Người Mua có nhu cầu trả hàng/hoàn tiền sau thời hạn trên, Shopee sẽ xem xét và có thể hỗ trợ Người Mua được trả hàng/hoàn tiền trong phạm vi phù hợp với Chính Sách Shopee.
+- [2] đơn yêu cầu trả hàng/hoàn tiền một phần (Người Mua chỉ nhấn yêu cầu trả hàng/hoàn tiền cho một hoặc một số sản phẩm trong đơn hàng, không phải tất cả sản phẩm), hoặc Người Mua nhấn yêu cầu trả hàng/hoàn tiền với lý do Chưa nhận được hàng (được Shopee chấp thuận theo quyết định riêng của Shopee),
+- [2] đơn yêu cầu trả hàng/hoàn tiền trong trường hợp Shopee chấp thuận (theo quyết định riêng của Shopee) hoặc đơn giao không thành công do lỗi của đơn vị vận chuyển,
+- [3] Shopee sẽ chỉ hoàn tiền cho Người Mua thuộc một trong các trường hợp sau:
+- [3] Người Mua chấp nhận đề xuất hoàn tiền không cần trả Sản Phẩm của Người Bán; hoặc
+- [3] Người Mua được Shopee quyết định hoàn tiền ngay mà không cần Người Mua trả Sản Phẩm; và/hoặc
+- Kiểm tra answer: THIẾU: thiếu hàng / thiếu sản phẩm / thiếu phụ kiện; sai sản phẩm; bể vỡ / hư hỏng / rò rỉ
 - Điểm: 0/2
 
 Q3 — Shopee có hỗ trợ đổi sản phẩm trực tiếp không
-Query:
-Shopee có hỗ trợ đổi sản phẩm trực tiếp không? Người mua nên làm gì nếu sản
-phẩm nhận được bị sai hoặc hư hỏng?
-
-- Top-1: tra-hang-do-doi-y#20
-  Score: 0.7649
-- Top-2: tra-hang-do-doi-y#5
-  Score: 0.7495
-- Top-3: chinh-sach-tra-hang-hoan-tien#9
-  Score: 0.7121
-- Tài liệu chuẩn trong top-3: KHÔNG
-- Context chứa đủ đáp án: KHÔNG; thiếu kết luận "chưa hỗ trợ đổi hàng"
+Query: Shopee có hỗ trợ đổi sản phẩm trực tiếp không? Người mua nên làm gì nếu sản phẩm nhận được bị sai hoặc hư hỏng?
+- Top-1: tra-hang-do-doi-y#20 (audience=buyer), score=0.7649
+- Top-2: tra-hang-do-doi-y#5 (audience=buyer), score=0.7495
+- Top-3: chinh-sach-tra-hang-hoan-tien#9 (audience=both), score=0.7121
+- Gold document trong top-3: KHÔNG
+- Câu trả lời thực tế của Agent:
+Theo context truy xuất:
+- [1] Việc thiếu hộp hoặc bất kỳ phục kiện nào cũng làm ảnh hưởng đến tính nguyên vẹn của sản phẩm, ảnh hưởng đến cả Người bán lẫn Người mua tiếp theo nên trong trường hợp này, Shopee sẽ không thể hỗ trợ Trả hàng với lý do Đổi ý.
+- [2] Nhằm nâng cao và đảm bảo chất lượng sản phẩm cũng như hạn chế các rủi ro đối với cả Người mua tiếp theo và Người bán, Shopee sẽ không thể hỗ trợ các trường hợp trả hàng với lý do “Đổi ý” trong các trường hợp bao gồm nhưng không giới hạn sau đây:
+- [3] Người Mua đã thanh toán bằng các phương thức thanh toán hợp lệ và trực tiếp trên Trang Shopee nhưng (i) không nhận được Sản Phẩm, hoặc (ii) không nhận được toàn bộ các Sản Phẩm đã đặt, hoặc (iii) nhận được Sản Phẩm là hàng giả, hàng nhái;
+- [3] Người Bán giao sai Sản Phẩm cho Người Mua (ví dụ: sai kích cỡ, sai màu sắc, v.v);
+- [2] Và một số sản phẩm khác tùy tình huống và theo quy định của Shopee tùy từng thời điểm.
+- [3] Sản Phẩm bị lỗi hoặc bị hư hại trong quá trình vận chuyển;
+- Kiểm tra answer: THIẾU: chưa hỗ trợ yêu cầu đổi hàng / chưa hỗ trợ đổi hàng; trả hàng/hoàn tiền / trả hàng hoàn tiền
 - Điểm: 0/2
 
 Q4 — Kênh và thời gian nhận tiền hoàn
-Query:
-Sau khi Shopee chấp nhận hoàn tiền, người mua thanh toán khi nhận hàng có thể
-nhận tiền qua đâu và mất bao lâu?
-
-- Top-1: huong-dan-gui-yeu-cau-tra-hang#6
-  Score: 0.7936
-- Top-2: thoi-gian-nhan-tien-hoan#7
-  Score: 0.7901
-- Top-3: thoi-gian-nhan-tien-hoan#6
-  Score: 0.7836
-- Tài liệu chuẩn trong top-3: CÓ, hạng 2
-- Context chứa đủ đáp án: KHÔNG; thiếu mốc "2 ngày làm việc"
+Query: Sau khi Shopee chấp nhận hoàn tiền, người mua thanh toán khi nhận hàng có thể nhận tiền qua đâu và mất bao lâu?
+- Top-1: huong-dan-gui-yeu-cau-tra-hang#6 (audience=buyer), score=0.7936
+- Top-2: thoi-gian-nhan-tien-hoan#7 (audience=buyer), score=0.7901
+- Top-3: thoi-gian-nhan-tien-hoan#6 (audience=buyer), score=0.7836
+- Gold document trong top-3: CÓ, hạng 2
+- Câu trả lời thực tế của Agent:
+Theo context truy xuất:
+- [1] Nếu yêu cầu được chấp nhận, tiền sẽ được hoàn trong 1 - 14 ngày làm việc, tùy thuộc vào phương thức thanh toán.
+- [2] Bảng 1: Phương thức hoàn tiền và thời gian hoàn tiền theo các phương thức thanh toán trên Shopee
+- [2] Trong quá trình xử lý nếu Người bán có khiếu nại, Shopee sẽ xem xét & thông báo kết quả cuối cùng đến bạn tại mục Thông báo > Cập nhật đơn hàng trong vòng 3-5 ngày làm việc kể từ lúc tiếp nhận khiếu nại từ Người bán
+- [1] # Hướng dẫn gửi yêu cầu Trả hàng/Hoàn tiền
+- [1] Để tìm hiểu thêm về thời gian hoàn tiền theo từng phương thức, vui lòng truy cập [Trả hàng/Hoàn tiền] Thời gian nhận tiền hoàn và cách kiểm tra tiền hoàn
+- [1] Trường hợp Trả lại & Hoàn tiền
+- Kiểm tra answer: THIẾU: ví shopeepay; 24 giờ; tài khoản ngân hàng; 2 ngày làm việc
 - Điểm: 0/2
 
 Q5 — Thời hạn và nơi phản hồi của người bán
-Query:
-Khi hệ thống ghi nhận đã trả hàng thành công nhưng Shop chưa nhận được hàng
-hoặc hàng hoàn gặp vấn đề, người bán phải phản hồi trong thời hạn bao lâu và
-thực hiện phản hồi ở đâu?
-
-Lượt có metadata_filter={"audience": "seller"}:
-- Top-1: chinh-sach-tra-hang-hoan-tien#33 (audience=both)
-  Score: 0.7263
-- Top-2: quan-ly-don-tra-hang-nguoi-ban#6 (audience=seller)
-  Score: 0.7146
-- Top-3: quan-ly-don-tra-hang-nguoi-ban#7 (audience=seller)
-  Score: 0.7138
-- Tài liệu chuẩn trong top-3: CÓ, hạng 2
-- Context chứa đủ cụm "2 ngày" và "Phản hồi đến Shopee": CÓ
+Query: Khi hệ thống ghi nhận đã trả hàng thành công nhưng Shop chưa nhận được hàng hoặc hàng hoàn gặp vấn đề, người bán phải phản hồi trong thời hạn bao lâu và thực hiện phản hồi ở đâu?
+Metadata filter: {'audience': 'seller'}
+- Top-1: chinh-sach-tra-hang-hoan-tien#33 (audience=both), score=0.7263
+- Top-2: quan-ly-don-tra-hang-nguoi-ban#6 (audience=seller), score=0.7146
+- Top-3: quan-ly-don-tra-hang-nguoi-ban#7 (audience=seller), score=0.7138
+- Gold document trong top-3: CÓ, hạng 2
+- Câu trả lời thực tế của Agent:
+Theo context truy xuất:
+- [2] Hệ thống ghi nhận đã trả hàng thành công nhưng Shop chưa nhận được hàng hoặc hàng hoàn về gặp vấn đề (vỡ/ hư hại/thiếu hàng/ không phải hàng của Shop...)
+- [1] Người Bán cần gửi phản hồi trong vòng 02 ngày lịch (hoặc thời hạn khác được quy định bởi Shopee trong từng thời điểm) kể từ ngày nhận được thông báo của Shopee nếu không đồng ý với quyết định hoàn tiền của Shopee hoặc chưa nhận được Sản Phẩm Hoàn Trả/Sản Phẩm Hoàn Trả không thuộc các trường hợp mà Người Mua được hoàn hàng/trả tiền hoặc Sản Phẩm Hoàn Trả bị hư hỏng, mất mát trong quá trình hoàn trả
+- [2] Hướng dẫn Phản hồi đến Shopee khi chưa nhận được hàng hoàn hoặc hàng hoàn gặp vấn đề
+- [3] Hệ thống ghi nhận Người Mua đã gửi hàng cho ĐVVC nhưng Shop chưa nhận được hàng
+- [3] Theo dõi và phản hồi yêu cầu Trả hàng/Hoàn tiền trên Kênh Quản Lý Shop
+- [2] # Quản lý đơn trả hàng hoàn tiền (Kênh Quản Lý người bán)
+- Kiểm tra answer: ĐỦ
 - Điểm: 1/2
-
-Lượt không dùng metadata filter:
-- Top-1: chinh-sach-tra-hang-hoan-tien#33 (audience=both), score 0.7263
-- Top-2: quan-ly-don-tra-hang-nguoi-ban#6 (audience=seller), score 0.7146
-- Top-3: quan-ly-don-tra-hang-nguoi-ban#7 (audience=seller), score 0.7138
-- Kết quả top-3 giống lượt có filter
-- Điểm: 1/2
-
-Nhận xét A/B:
-Bộ lọc audience không cải thiện câu 5 trong lượt HeadingChunker. Nguyên nhân là
-search_with_filter coi tài liệu audience=both là phù hợp với seller, trong khi
-top-3 không lọc vốn đã gồm đúng ba chunk trên.
+- Top-3 khi không lọc:
+  - Top-1: chinh-sach-tra-hang-hoan-tien#33 (audience=both), score=0.7263
+  - Top-2: quan-ly-don-tra-hang-nguoi-ban#6 (audience=seller), score=0.7146
+  - Top-3: quan-ly-don-tra-hang-nguoi-ban#7 (audience=seller), score=0.7138
 
 4. TỔNG HỢP
 ------------
@@ -143,22 +135,13 @@ top-3 không lọc vốn đã gồm đúng ba chunk trên.
 - Q4: 0/2
 - Q5: 1/2
 - Số câu có tài liệu chuẩn trong top-3: 3/5
-- Số câu có context đủ các cụm bắt buộc: 2/5
+- Số câu Agent trả lời đủ thông tin bắt buộc: 2/5
 - Tổng điểm: 2/10
 
-5. PHÂN TÍCH
--------------
-HeadingChunker giữ tiêu đề trong từng chunk và truy xuất tốt câu hỏi có cấu trúc
-theo mục rõ ràng như Q1. Tuy nhiên, việc lặp lại tiêu đề làm nhiều chunk cùng chủ
-đề có điểm gần nhau; các chunk chứa chi tiết trả lời có thể bị đẩy khỏi top-3.
-
-Failure case rõ nhất là Q2: danh sách lý do trả hàng nằm trên nhiều phần nội dung,
-nhưng cả ba kết quả đầu thuộc tài liệu chính sách tổng quát và không chứa đủ các
-trường hợp cần liệt kê. Q3 cũng bị nhiễu bởi tài liệu "Trả hàng do đổi ý" vì có
-từ vựng gần với câu hỏi về đổi sản phẩm.
-
-Lưu ý tái lập:
-Benchmark này chạy trên corpus hiện có và tạo 186 chunk. JSON FixedSize được cung
-cấp trước đó ghi 149 chunk, trong khi chạy lại FixedSize từ mã nguồn/corpus hiện
-tại tạo 155 chunk. Vì vậy chỉ nên so sánh điểm sau khi cả nhóm thống nhất cùng
-corpus và cùng một benchmark runner.
+5. KẾT LUẬN
+------------
+Agent trả lời đúng và đủ Q1, Q5. Q2 và Q3 thất bại do chunk chứa đáp án
+không vào top-3. Q4 lấy đúng tài liệu ở hạng 2 nhưng answer thiếu đầy đủ
+hai phương thức và mốc 2 ngày làm việc, nên không được tính điểm.
+Câu trả lời phía trên là output thực tế từ KnowledgeBaseAgent.answer(),
+không phải phần tóm tắt viết tay từ gold answer.

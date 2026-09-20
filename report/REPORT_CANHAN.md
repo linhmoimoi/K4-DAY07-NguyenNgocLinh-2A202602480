@@ -57,7 +57,7 @@ Thuật toán thử separator theo thứ tự ưu tiên `\n\n`, `\n`, `. `, kho�
 **Chiến lược chunking cá nhân: Custom `HeadingChunker`**
 Theo chiến lược đã thống nhất trong báo cáo nhóm, tôi chia tài liệu theo heading/section Markdown để mỗi chunk giữ được tiêu đề của mục chính sách. Nếu một section dài hơn `chunk_size`, phần nội dung được chia tiếp bằng `RecursiveChunker` và heading được lặp lại ở đầu mỗi chunk để giữ ngữ cảnh. Cách này phù hợp với tài liệu Shopee có cấu trúc mục rõ ràng; độ dài chunk có thể không đồng đều nên cần kiểm tra khi benchmark.
 
-Trong benchmark thực tế với `chunk_size=500`, chiến lược này tạo 186 chunks. Heading giúp giữ dấu vết của mục chính sách, nhưng các section dài tạo nhiều chunk lặp lại cùng heading và cạnh tranh vị trí trong top-3.
+Trong benchmark thực tế với `chunk_size=500`, chiến lược này tạo 186 chunks. Heading giúp giữ dấu vết của mục chính sách, nhưng các section dài tạo nhiều chunk lặp lại cùng heading và cạnh tranh vị trí trong top-3. Phiên bản chạy được được đặt trong `src/chunking.py`; runner `bench.py` dùng chính lớp này để tái lập benchmark.
 
 ```python
 import re
@@ -148,22 +148,22 @@ Các điểm trong mục này được tính bằng `MockEmbedder`; benchmark re
 
 ## 5. Kết quả truy xuất của tôi (Competition Results) — Cá nhân (10 điểm)
 
-Tôi chạy 5 câu hỏi chung của nhóm bằng `HeadingChunker(chunk_size=500)`, model `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2` và `top_k=3`. Corpus sau khi chia gồm 186 chunks. Việc chấm dựa trên vị trí tài liệu chuẩn và các cụm thông tin bắt buộc trong context top-3; đây là đánh giá khả năng trả lời từ context truy xuất, chưa phải câu trả lời do LLM tạo.
+Tôi chạy 5 câu hỏi chung của nhóm bằng `HeadingChunker(chunk_size=500)`, model `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2` và `top_k=3`. Corpus sau khi chia gồm 186 chunks. Mỗi câu hỏi được gọi qua `KnowledgeBaseAgent.answer()`; Agent truy xuất top-3, dựng prompt và gọi `ExtractiveAnswerGenerator` cục bộ để sinh câu trả lời trực tiếp từ context kèm citation. Bộ sinh không nhận gold answer; gold chỉ được dùng sau khi sinh để kiểm tra độ đầy đủ và tính điểm. Cách chạy này không cần API key và có thể tái lập bằng `py -3.11 bench.py`.
 
-| # | Câu hỏi (Query) | Top-1 Chunk truy xuất được (tóm tắt) | Score | Đánh giá top-3 | Khả năng trả lời từ context |
-|---|-------|--------------------------------|------:|------------------|-----------------------------|
-| 1 | Người mua có tối đa bao lâu để gửi yêu cầu trả hàng/hoàn tiền đối với đơn hàng thông thường và thực phẩm tươi sống hoặc đông lạnh? | `chinh-sach-tra-hang-hoan-tien#11`: thời hạn 15 ngày | 0.8171 | Có — gold `quy-dinh-chung-tra-hang-hoan-tien#3` ở hạng 2 | Đủ hai mốc 15 ngày và 24 giờ; **1/2 điểm** |
-| 2 | Trong những trường hợp nào người mua có thể yêu cầu trả hàng/hoàn tiền? Hãy liệt kê ít nhất bốn trường hợp. | `chinh-sach-tra-hang-hoan-tien#12`: hỗ trợ sau thời hạn trả hàng | 0.6502 | Không — tài liệu chuẩn không vào top-3 | Thiếu nhiều trường hợp bắt buộc; **0/2 điểm** |
-| 3 | Shopee có hỗ trợ đổi sản phẩm trực tiếp không? Người mua nên làm gì nếu sản phẩm nhận được bị sai hoặc hư hỏng? | `tra-hang-do-doi-y#20`: bao bì và phụ kiện khi trả hàng | 0.7649 | Không — tài liệu chuẩn không vào top-3 | Thiếu kết luận “chưa hỗ trợ yêu cầu đổi hàng”; **0/2 điểm** |
-| 4 | Sau khi Shopee chấp nhận hoàn tiền, người mua thanh toán khi nhận hàng có thể nhận tiền qua đâu và mất bao lâu? | `huong-dan-gui-yeu-cau-tra-hang#6`: thời gian hoàn tiền 1–14 ngày làm việc | 0.7936 | Có một phần — gold `thoi-gian-nhan-tien-hoan#7` ở hạng 2 | Thiếu đầy đủ hai phương thức và mốc 2 ngày làm việc; **0/2 điểm** |
-| 5 | Khi hệ thống ghi nhận đã trả hàng thành công nhưng Shop chưa nhận được hàng hoặc hàng hoàn gặp vấn đề, người bán phải phản hồi trong thời hạn bao lâu và thực hiện phản hồi ở đâu? (`metadata_filter={"audience": "seller"}`) | `chinh-sach-tra-hang-hoan-tien#33`: người bán phản hồi trong 02 ngày | 0.7263 | Có — gold `quan-ly-don-tra-hang-nguoi-ban#6` ở hạng 2 | Đủ “2 ngày” và “Phản hồi đến Shopee”; **1/2 điểm** |
+| # | Câu hỏi (Query) | Top-1 Chunk truy xuất được (tóm tắt) | Score | Đánh giá top-3 | Câu trả lời thực tế của Agent (tóm tắt) |
+|---|-------|--------------------------------|------:|------------------|-----------------------------------------|
+| 1 | Người mua có tối đa bao lâu để gửi yêu cầu trả hàng/hoàn tiền đối với đơn hàng thông thường và thực phẩm tươi sống hoặc đông lạnh? | `chinh-sach-tra-hang-hoan-tien#11`: thời hạn 15 ngày | 0.8171 | Có — gold `quy-dinh-chung-tra-hang-hoan-tien#3` ở hạng 2 | Agent trích được 15 ngày cho đơn thông thường và 24 giờ cho thực phẩm tươi sống/đông lạnh `[1][2]`; answer đủ, **1/2 điểm** |
+| 2 | Trong những trường hợp nào người mua có thể yêu cầu trả hàng/hoàn tiền? Hãy liệt kê ít nhất bốn trường hợp. | `chinh-sach-tra-hang-hoan-tien#12`: hỗ trợ sau thời hạn trả hàng | 0.6502 | Không — tài liệu chuẩn không vào top-3 | Agent chỉ nêu các trường hợp hoàn tiền một phần/không cần trả hàng; thiếu nhận thiếu, sai, bể vỡ hoặc hư hỏng; **0/2 điểm** |
+| 3 | Shopee có hỗ trợ đổi sản phẩm trực tiếp không? Người mua nên làm gì nếu sản phẩm nhận được bị sai hoặc hư hỏng? | `tra-hang-do-doi-y#20`: bao bì và phụ kiện khi trả hàng | 0.7649 | Không — tài liệu chuẩn không vào top-3 | Agent nêu một số trường hợp “đổi ý”, giao sai và hư hỏng nhưng không trả lời kết luận “chưa hỗ trợ đổi hàng” và hướng xử lý; **0/2 điểm** |
+| 4 | Sau khi Shopee chấp nhận hoàn tiền, người mua thanh toán khi nhận hàng có thể nhận tiền qua đâu và mất bao lâu? | `huong-dan-gui-yeu-cau-tra-hang#6`: thời gian hoàn tiền 1–14 ngày làm việc | 0.7936 | Có một phần — gold `thoi-gian-nhan-tien-hoan#7` ở hạng 2 | Agent trả lời mốc chung 1–14 ngày và dẫn tới bảng, nhưng thiếu Ví ShopeePay/24 giờ và tài khoản ngân hàng/2 ngày làm việc; **0/2 điểm** |
+| 5 | Khi hệ thống ghi nhận đã trả hàng thành công nhưng Shop chưa nhận được hàng hoặc hàng hoàn gặp vấn đề, người bán phải phản hồi trong thời hạn bao lâu và thực hiện phản hồi ở đâu? (`metadata_filter={"audience": "seller"}`) | `chinh-sach-tra-hang-hoan-tien#33`: người bán phản hồi trong 02 ngày | 0.7263 | Có — gold `quan-ly-don-tra-hang-nguoi-ban#6` ở hạng 2 | Agent trích được thời hạn 02 ngày và phần “Phản hồi đến Shopee” trên Kênh Quản Lý Shop `[1][2][3]`; answer đủ, **1/2 điểm** |
 
 **Kết quả tổng hợp:**
 
 - Tài liệu chuẩn xuất hiện trong top-3 ở **3/5 câu**: Q1, Q4 và Q5.
-- Context top-3 đủ thông tin bắt buộc ở **2/5 câu**: Q1 và Q5.
+- Câu trả lời thực tế của Agent đủ thông tin bắt buộc ở **2/5 câu**: Q1 và Q5.
 - Tổng điểm retrieval: **2/10**.
-- Kết quả chi tiết được lưu tại `report/KET_QUA_BENCHMARK_HEADING_CHUNKER.txt`.
+- Runner tái lập: `bench.py`; output đầy đủ gồm top-3, answer và citation được lưu tại `report/KET_QUA_BENCHMARK_HEADING_CHUNKER.txt`.
 
 **Lọc bằng metadata:** Ở Q5, `metadata_filter={"audience": "seller"}` trả về cùng top-3 và cùng score như khi không lọc. Bộ lọc chưa cải thiện thứ hạng vì chunk top-1 có `audience="both"` và vẫn được xem là phù hợp với truy vấn dành cho người bán.
 
