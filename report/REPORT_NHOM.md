@@ -39,6 +39,7 @@
 **Danh sách kiểm tra quản trị dữ liệu (Data governance checklist):**
 - [x] Tập tài liệu (Corpus) gồm các bài chính sách công khai từ Trung tâm trợ giúp Shopee; không chứa dữ liệu cá nhân, thông tin đăng nhập hoặc tài liệu nội bộ.
 - [x] Cả 10 tài liệu đều có `source_url`, `retrieved_at`, `document_version` trong metadata; `document_version` hiện ghi `not-stated`.
+- [x] Trường `audience` có đủ ba giá trị `buyer`, `seller` và `both`, nhờ đó có thể kiểm tra tác động thực tế của `metadata_filter` thay vì chỉ lưu metadata để mô tả.
 
 ### Cấu trúc Metadata (Metadata Schema)
 
@@ -61,13 +62,22 @@
 
 ### Phân tích đường cơ sở (Baseline Analysis)
 
-Chạy `ChunkingStrategyComparator().compare()` trên 2-3 tài liệu:
+Chạy `ChunkingStrategyComparator().compare(chunk_size=500)` trên phần nội dung sau front matter của ba tài liệu đại diện trong corpus hiện tại:
 
-| Tài liệu | Chiến lược (Strategy) | Số lượng Chunk | Độ dài trung bình | Giữ được ngữ cảnh không? |
-|-----------|----------|-------------|------------|-------------------|
-| | FixedSizeChunker (`fixed_size`) | | | |
-| | SentenceChunker (`by_sentences`) | | | |
-| | RecursiveChunker (`recursive`) | | | |
+| Tài liệu | Chiến lược (Strategy) | Số lượng Chunk | Độ dài trung bình | Đánh giá ngữ cảnh |
+|-----------|----------|-------------:|------------------:|-------------------|
+| `quy-dinh-chung-tra-hang-hoan-tien.md` (6.318 ký tự) | FixedSizeChunker (`fixed_size`) | 13 | 486,0 | Có thể cắt giữa điều khoản |
+|  | SentenceChunker (`by_sentences`, 3 câu/chunk) | 10 | 626,8 | Giữ câu nhưng chunk dài không đồng đều |
+|  | RecursiveChunker (`recursive`) | 15 | 417,6 | Ưu tiên ranh giới đoạn, vẫn có thể tách khỏi heading |
+| `thoi-gian-nhan-tien-hoan.md` (3.898 ký tự, có bảng) | FixedSizeChunker | 8 | 487,2 | Có thể cắt giữa hàng hoặc cột bảng |
+|  | SentenceChunker | 4 | 972,0 | Gom nhiều nội dung vì cấu trúc bảng ít dấu kết thúc câu |
+|  | RecursiveChunker | 10 | 386,1 | Tách theo dòng tốt hơn nhưng vẫn có thể xé bảng dài |
+| `chinh-sach-tra-hang-hoan-tien.md` (19.609 ký tự) | FixedSizeChunker | 40 | 490,2 | Kích thước ổn định nhưng nhiều chunk cạnh tranh top-k |
+|  | SentenceChunker | 43 | 453,3 | Không cắt giữa câu nhưng có thể mất liên kết với heading |
+|  | RecursiveChunker | 62 | 313,7 | Nhiều chunk nhỏ do tài liệu có nhiều xuống dòng |
+
+**Nhận xét baseline:**
+> Ba chiến lược có sẵn chưa khai thác trực tiếp cấu trúc heading Markdown của tài liệu Shopee. `SentenceChunker` giữ ranh giới câu nhưng xử lý bảng kém; `FixedSizeChunker` dễ cắt ngang ý; còn `RecursiveChunker` bảo toàn đoạn tốt hơn nhưng sinh nhiều chunk nhỏ trên tài liệu dài. Đây là cơ sở để nhóm thử `HeadingChunker`, trong đó heading được gắn lại vào từng mảnh con khi section vượt quá giới hạn.
 
 ### Chiến lược của từng thành viên
 
@@ -79,8 +89,8 @@ Mỗi thành viên thử một chiến lược riêng trên cùng corpus và cù
 - **Code snippet (nếu custom):** Không áp dụng — dùng `SentenceChunker` có sẵn.
 
 **Nguyễn Lê Ngọc Bảo**
-- **Loại chiến lược:** `FixedSizeChunker` (`chunk_size=500`, `overlap=50`)
-- **Mô tả & lý do chọn cho chủ đề này:** Chia văn bản thành các chunk có kích thước ổn định, thuận tiện kiểm soát số lượng và so sánh retrieval. Overlap giúp giữ một phần ngữ cảnh ở ranh giới, nhưng chunk vẫn có thể cắt ngang câu hoặc tiêu đề.
+- **Loại chiến lược:** `FixedSizeChunker` (`chunk_size=500`, `overlap=80`)
+- **Mô tả & lý do chọn cho chủ đề này:** Chia văn bản thành các chunk có kích thước ổn định, thuận tiện kiểm soát số lượng và so sánh retrieval. Overlap 80 ký tự giữ thêm ngữ cảnh ở ranh giới, nhưng chunk vẫn có thể cắt ngang câu hoặc tiêu đề và tạo nội dung lặp.
 - **Code snippet (nếu custom):** Không áp dụng — dùng `FixedSizeChunker` có sẵn.
 
 **Lê Thị Châm Anh**
@@ -130,15 +140,23 @@ class HeadingChunker:
 
 ### So Sánh Giữa Các Thành Viên
 
-| Thành viên | Chiến lược (Strategy) | Điểm truy xuất (/10) | Điểm mạnh | Điểm yếu |
-|-----------|----------|----------------------|-----------|----------|
-| Đặng Văn Thái Anh | `SentenceChunker` (3 câu/chunk) | Chờ benchmark | Giữ ranh giới câu, chunk dễ đọc | Độ dài không đồng đều; có thể mất liên kết với heading |
-| Nguyễn Lê Ngọc Bảo | `FixedSizeChunker` (500, overlap 50) | Chờ benchmark | Kích thước ổn định; overlap giữ ngữ cảnh ở biên | Có thể cắt ngang câu/mục; overlap tạo nội dung lặp |
-| Lê Thị Châm Anh | `RecursiveChunker` (500) | Chờ benchmark | Ưu tiên tách theo đoạn/dòng trước khi cắt nhỏ | Không nhất thiết giữ nguyên ranh giới heading/section |
-| Nguyễn Ngọc Linh | Custom `HeadingChunker` (heading + recursive fallback) | Chờ benchmark | Giữ tiêu đề/mục chính sách trong ngữ cảnh | Chunk có thể dài/ngắn khác nhau; section dài cần chia tiếp |
+| Thành viên | Chiến lược (Strategy) | Embedding | Điểm truy xuất (/10) | Điểm mạnh | Điểm yếu |
+|-----------|----------|-----------|----------------------|-----------|----------|
+| Đặng Văn Thái Anh | `SentenceChunker` (3 câu/chunk) | `MockEmbedder` | 2 / 10 theo bản đính kèm | Giữ ranh giới câu, chunk dễ đọc | Độ dài không đồng đều; có thể mất liên kết với heading |
+| Nguyễn Lê Ngọc Bảo | `FixedSizeChunker` (500, overlap 80) | MiniLM đa ngôn ngữ | 3 / 10 | Kích thước ổn định; overlap giữ ngữ cảnh ở biên | Có thể cắt ngang câu/mục; overlap tạo nội dung lặp |
+| Lê Thị Châm Anh | `RecursiveChunker` (500) | TF-IDF word + bigram | 4 / 10 theo kết quả riêng | Ưu tiên tách theo đoạn/dòng; Q1 và Q4 truy xuất được thông tin liên quan | Không nhất thiết giữ heading; danh sách dài vẫn bị trải qua nhiều chunk |
+| Nguyễn Ngọc Linh | Custom `HeadingChunker` (heading + recursive fallback, 500) | MiniLM đa ngôn ngữ | 2 / 10 | Giữ tiêu đề/mục chính sách trong ngữ cảnh | Một số section dài và các chunk lặp heading cạnh tranh top-3 |
+
+**Benchmark FixedSizeChunker:** JSON nhóm cung cấp ghi nhận model `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2` (local), `top_k=3`, `chunk_size=500`, `overlap=80` và **149 chunks**.
+
+**Benchmark Nguyễn Ngọc Linh:** Chạy ngày 2026-09-20 trên corpus hiện có bằng cùng model local và `top_k=3`; `HeadingChunker(chunk_size=500)` tạo **186 chunks**. Điểm được tính theo vị trí tài liệu chuẩn trong top-3 và các cụm nội dung cần có từ đáp án chuẩn; chi tiết ở mục 3.
+
+> **Lưu ý khi so sánh:** Chạy lại `FixedSizeChunker(500, overlap=80)` từ mã nguồn hiện tại tạo 155 chunks và không tái lập được ID chunk top-3 trong JSON đã cung cấp. Vì vậy điểm giữa hai lượt benchmark hiện chỉ mang tính tham khảo cho tới khi thống nhất lại runner/cấu hình FixedSize.
+
+> Bốn kết quả trên còn dùng backend embedding khác nhau. Chênh lệch điểm phản ánh đồng thời tác động của chunking và embedding, nên chưa thể quy toàn bộ khác biệt cho riêng chiến lược chunking.
 
 **Chiến lược nào tốt nhất cho chủ đề này? Tại sao?**
-> *Viết 2-3 câu — đây là phần được đánh giá cao nhất (khả năng suy nghĩ & giải thích):*
+> Điểm quan sát cao nhất hiện tại là **4/10** của `RecursiveChunker + TF-IDF`, trong khi `FixedSizeChunker + MiniLM` đạt **3/10** và `HeadingChunker + MiniLM` đạt **2/10**. Tuy nhiên các lượt chạy chưa dùng cùng backend và runner, vì vậy chưa thể kết luận `RecursiveChunker` tốt nhất chỉ từ điểm tổng. Về thiết kế dữ liệu, `HeadingChunker` vẫn phù hợp với tài liệu chính sách có cấu trúc mục rõ ràng; bước tiếp theo cần chạy cả bốn chunker trên cùng MiniLM, cùng corpus và cùng tiêu chí chấm để chọn chiến lược thắng một cách công bằng.
 
 ---
 
@@ -156,44 +174,70 @@ class HeadingChunker:
 | 4 | Sau khi Shopee chấp nhận hoàn tiền, người mua thanh toán khi nhận hàng có thể nhận tiền qua đâu và mất bao lâu? | Tiền có thể được hoàn vào **Ví ShopeePay trong 24 giờ**, nếu ví hoạt động bình thường; hoặc vào **tài khoản ngân hàng mặc định đã liên kết trong 2 ngày làm việc**, tùy ngân hàng. | `thoi-gian-nhan-tien-hoan.md` — bảng **Phương thức hoàn tiền và thời gian hoàn tiền** |
 | 5 | Khi hệ thống ghi nhận đã trả hàng thành công nhưng Shop chưa nhận được hàng hoặc hàng hoàn gặp vấn đề, người bán phải phản hồi trong thời hạn bao lâu và thực hiện phản hồi ở đâu? | Người bán phải phản hồi trong vòng **2 ngày**, tính từ ngày hệ thống cập nhật trả hàng thành công. Vào **Kênh Quản Lý Shop → Trả hàng/Hoàn tiền → Cần phản hồi → Phản hồi đến Shopee**; hệ thống điều hướng sang Kênh Người Bán để hoàn tất phản hồi. | `quan-ly-don-tra-hang-nguoi-ban.md` — mục **C. Hướng dẫn Phản hồi đến Shopee khi chưa nhận được hàng hoàn hoặc hàng hoàn gặp vấn đề**; `metadata_filter={"audience": "seller"}` |
 
-*Vị trí hiện ghi theo tài liệu và tiêu đề mục; bổ sung ID chunk sau khi chốt cấu hình chia chunk dùng cho benchmark.*
+*Trong bảng so sánh bên dưới, ID của FixedSize lấy từ JSON đã cung cấp; ID của Heading lấy từ lượt benchmark hiện tại. ID thay đổi theo chiến lược và cấu hình chunking.*
 
 ### Tổng hợp chất lượng truy xuất của nhóm
 
-> Cách chấm (theo `docs/SCORING.md`): **2 điểm/câu** — top-3 chứa chunk liên quan + agent trả lời đúng (2), có liên quan nhưng thiếu/không ở top-1 (1), không có trong top-3 (0).
+> Benchmark chấm theo hạng của tài liệu chuẩn trong top-3 và kiểm tra các cụm bắt buộc trong context: **2 điểm** nếu tài liệu chuẩn hạng 1 và context đủ đáp án, **1 điểm** nếu tài liệu chuẩn hạng 2–3 và context đủ đáp án, **0 điểm** nếu không tìm thấy tài liệu chuẩn hoặc context thiếu cụm bắt buộc. Đây là phép kiểm tra độ bao phủ context, không phải câu trả lời do LLM tạo. Bảng so sánh dưới đây gồm benchmark `FixedSizeChunker` đã cung cấp và lượt `HeadingChunker` của Nguyễn Ngọc Linh; kết luận xếp hạng vẫn tạm thời do lưu ý về khả năng tái lập ở mục 2.
 
-| # | Câu hỏi | Chiến lược tốt nhất cho câu này | Có chunk liên quan trong top-3? | Ghi chú |
-|---|---------|-------------------------------|-------------------------------|---------|
-| 1 | | | | |
-| 2 | | | | |
-| 3 | | | | |
-| 4 | | | | |
-| 5 | | | | |
+#### Tổng hợp các kết quả hiện có
+
+| Chiến lược | Embedding | Q1 | Q2 | Q3 | Q4 | Q5 | Tổng |
+|---|---|:---:|:---:|:---:|:---:|:---:|---:|
+| `SentenceChunker(max=3)` | Mock | 0 | 0 | 0 | 0 | 2 | **2/10** |
+| `FixedSizeChunker(500, overlap=80)` | MiniLM đa ngôn ngữ | 1 | 0 | 0 | 0 | 2 | **3/10** |
+| `RecursiveChunker(500)` | TF-IDF word + bigram | 2 | 0 | 0 | 1 | 1 | **4/10** |
+| `HeadingChunker(500)` | MiniLM đa ngôn ngữ | 1 | 0 | 0 | 0 | 1 | **2/10** |
+
+> Bảng này tổng hợp các lượt chạy đã có, nhưng không phải thí nghiệm chỉ thay một biến vì backend embedding chưa đồng nhất. Repo hiện lưu kết quả chi tiết của Heading; kết quả FixedSize đến từ JSON đã cung cấp, còn Sentence và Recursive được bổ sung từ báo cáo đính kèm/kết quả riêng của thành viên. Cần đưa toàn bộ runner và output vào repo trước khi chạy lại phép so sánh cuối cùng.
+
+#### So sánh chi tiết FixedSize và Heading trên MiniLM
+
+| # | Câu hỏi | `FixedSizeChunker` (500, overlap 80) | `HeadingChunker` (500) — Nguyễn Ngọc Linh |
+|---|---------|--------------------------------------|-----------------------------------------|
+| 1 | Thời hạn gửi yêu cầu trả hàng/hoàn tiền | Gold chunk `quy-dinh-chung-tra-hang-hoan-tien#1` hạng 2; context đủ; **1 / 2**. Top-1 `chinh-sach-tra-hang-hoan-tien#7` (0.8594). | Gold chunk `quy-dinh-chung-tra-hang-hoan-tien#3` hạng 2; context đủ; **1 / 2**. Top-1 `chinh-sach-tra-hang-hoan-tien#11` (0.8171). |
+| 2 | Các trường hợp được yêu cầu trả hàng/hoàn tiền | Gold chunk `quy-dinh-chung-tra-hang-hoan-tien#4` hạng 2; context thiếu “bể vỡ”; **0 / 2**. Top-1 `chinh-sach-tra-hang-hoan-tien#5` (0.6943). | Tài liệu chuẩn không vào top-3; context thiếu nhiều trường hợp; **0 / 2**. Top-1 `chinh-sach-tra-hang-hoan-tien#12` (0.6502). |
+| 3 | Đổi sản phẩm trực tiếp và cách xử lý khi nhận sai/hỏng | Tài liệu chuẩn không vào top-3; **0 / 2**. Top-1 `tra-hang-do-doi-y#3` (0.8297). | Tài liệu chuẩn không vào top-3; **0 / 2**. Top-1 `tra-hang-do-doi-y#20` (0.7649). |
+| 4 | Kênh và thời gian hoàn tiền cho đơn thanh toán khi nhận hàng | Gold chunk `thoi-gian-nhan-tien-hoan#4` hạng 2; context thiếu “2 ngày làm việc”; **0 / 2**. Top-1 `huong-dan-gui-yeu-cau-tra-hang#4` (0.8345). | Gold chunk `thoi-gian-nhan-tien-hoan#7` hạng 2; context thiếu phương thức và mốc “2 ngày làm việc”; **0 / 2**. Top-1 `huong-dan-gui-yeu-cau-tra-hang#6` (0.7936). |
+| 5 | Người bán phản hồi khi chưa nhận được hàng hoàn/hàng có vấn đề | Có lọc: gold chunk `quan-ly-don-tra-hang-nguoi-ban#5` hạng 1, context đủ; **2 / 2**. Không lọc: **0 / 2**. | Có lọc: gold chunk `quan-ly-don-tra-hang-nguoi-ban#6` hạng 2, context có “2 ngày” và “Phản hồi đến Shopee”; **1 / 2**. Không lọc trả về cùng top-3 và cũng **1 / 2**. |
 
 **Lọc bằng metadata có giúp ích không? Ở câu hỏi nào?**
-> *Viết 2-3 câu:*
+> Tác động phụ thuộc chiến lược: với FixedSize, lọc `audience=seller` tăng câu 5 từ **0 / 2** lên **2 / 2**. Với HeadingChunker, top-3 câu 5 giống nhau khi bật/tắt filter và cả hai lượt đạt **1 / 2**; bộ lọc không cải thiện kết quả vì tài liệu `audience=both` vẫn được xem là phù hợp với `seller`. Tổng lượt HeadingChunker là **2 / 10**; cần đồng bộ lại cách chạy FixedSize và benchmark thêm các chiến lược còn lại trước khi kết luận chiến lược tốt nhất.
+
+#### Phân tích lỗi chung
+
+- **Q2 — câu hỏi dạng danh sách:** thông tin cần trả lời trải qua nhiều dòng hoặc nhiều chunk; top-3 thường đúng chủ đề nhưng không chứa đủ bốn trường hợp.
+- **Q3 — ý phủ định:** các tài liệu về “đổi ý” hoặc hàng hư hỏng có độ tương tự từ vựng cao, trong khi chunk chứa kết luận “chưa hỗ trợ đổi hàng” không lọt top-3.
+- **Q4 — các mốc thời gian gần nhau:** chunk nói về thời gian xử lý yêu cầu cạnh tranh với chunk nói về thời gian nhận tiền; retrieval dễ lấy đúng chủ đề nhưng sai loại thời gian.
+- **Q5 — tác động của metadata:** filter giúp rõ rệt với FixedSize nhưng không đổi kết quả của Heading, cho thấy hiệu quả lọc phụ thuộc vào phân bố chunk và cách `audience=both` được xử lý.
 
 ---
 
 ## 4. Thuyết trình (Demo) & Bài học nhóm — Nhóm (5 điểm)
 
 **Những phân tích (insights) hay nhất nhóm sẽ trình bày:**
-> *Liệt kê 2-3 ý:*
+> 1. **Backend embedding và chunking phải được kiểm soát cùng lúc.** Điểm hiện có dao động từ 2–4/10, nhưng các thành viên chưa dùng cùng backend nên không thể quy toàn bộ chênh lệch cho chunker. Benchmark tiếp theo cần cố định MiniLM, corpus, `top_k` và cách chấm, chỉ thay chunker.
+>
+> 2. **Hai failure case chung là danh sách dài và ý phủ định.** Q2 thất bại vì các lý do trả hàng bị phân tán qua nhiều chunk; Q3 thất bại vì tài liệu “Trả hàng do Đổi ý” có từ vựng gần câu hỏi, làm chìm chunk chứa câu “chưa hỗ trợ đổi hàng”.
+>
+> 3. **Metadata filter không bảo đảm cải thiện trong mọi chiến lược.** Filter `audience=seller` giúp FixedSize ở Q5, nhưng không đổi top-3 của HeadingChunker vì store coi `audience=both` là phù hợp với truy vấn seller. Do đó phải đánh giá filter bằng A/B thay vì mặc định xem filter luôn tốt hơn.
 
 **Bài học rút ra khi so sánh trong nhóm:**
-> *Viết 2-3 câu — cùng tài liệu nhưng chiến lược khác nhau dẫn tới khác biệt gì?*
+> Cùng corpus nhưng cách chia khác nhau làm thay đổi số lượng ứng viên, mức độ đầy đủ của mỗi chunk và khả năng một tài liệu dài chiếm nhiều vị trí top-k. `FixedSizeChunker` ổn định về kích thước nhưng dễ cắt ngang ý; `SentenceChunker` giữ câu nhưng không phù hợp với bảng; `RecursiveChunker` giữ đoạn tốt hơn nhưng sinh nhiều chunk nhỏ; `HeadingChunker` giữ cấu trúc mục nhưng việc lặp heading khiến nhiều chunk cùng chủ đề có điểm gần nhau. Kết quả cho thấy độ mạch lạc của chunk và chất lượng embedding đều ảnh hưởng trực tiếp đến retrieval.
 
 **Nếu làm lại, nhóm sẽ thay đổi gì trong chiến lược dữ liệu (data strategy)?**
-> *Viết 2-3 câu:*
+> Nhóm sẽ dùng một benchmark runner duy nhất và cùng MiniLM cho cả bốn chiến lược, đồng thời lưu corpus hash, số chunk theo file và kết quả top-3 để bảo đảm tái lập. Với `HeadingChunker`, nhóm sẽ bỏ các chunk chỉ có tiêu đề, giữ heading khi fallback và thêm xử lý riêng cho bảng/danh sách. Cuối cùng, nhóm sẽ thử giới hạn số chunk trên mỗi tài liệu hoặc reranking để tài liệu dài không chiếm toàn bộ top-k.
 
 ---
 
 ## Tự Đánh Giá (Phần Nhóm)
 
+> Điểm dưới đây là tự đánh giá dựa trên minh chứng hiện có. Điểm chất lượng truy xuất lấy theo kết quả benchmark cao nhất đã ghi nhận, không cộng thêm điểm thiết kế chiến lược vào tiêu chí retrieval.
+
 | Tiêu chí | Điểm tự đánh giá |
 |----------|-------------------|
-| Lựa chọn tài liệu (Document Set Quality) | / 10 |
-| Thiết kế chiến lược (Strategy Design) | / 15 |
-| Chất lượng truy xuất (Retrieval Quality) | / 10 |
-| Thuyết trình (Demo) | / 5 |
-| **Tổng phần nhóm** | **/ 40** |
+| Lựa chọn tài liệu (Document Set Quality) | **10 / 10** — 10 tài liệu công khai, đủ provenance và metadata bắt buộc |
+| Thiết kế chiến lược (Strategy Design) | **15 / 15** — có baseline, bốn chiến lược, custom chunker và phân tích giới hạn |
+| Chất lượng truy xuất (Retrieval Quality) | **4 / 10** — kết quả cao nhất hiện tại là `RecursiveChunker + TF-IDF` đạt 4/10 |
+| Thuyết trình (Demo) | **5 / 5** — đã có insight, failure case, A/B metadata và hướng cải tiến cụ thể |
+| **Tổng phần nhóm** | **34 / 40** |

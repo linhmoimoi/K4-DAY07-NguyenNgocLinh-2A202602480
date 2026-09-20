@@ -1,8 +1,8 @@
 # Báo Cáo Cá Nhân — Lab 7: Embedding & Vector Store
 
 **Họ tên:** Nguyễn Ngọc Linh
-**Nhóm:** [Cần bổ sung tên nhóm]
-**Ngày:** 2026-09-19
+**Nhóm:** G00
+**Ngày:** 2026-09-20
 
 > **Nộp 1 bản / sinh viên.** Phần nhóm (lựa chọn tài liệu, thiết kế chiến lược, bộ câu hỏi đánh giá, demo) nộp chung 1 bản trong `REPORT_NHOM.md`. Chi tiết thang điểm: `docs/SCORING.md`.
 
@@ -53,6 +53,45 @@ Hàm dùng regex `(?<=[.!?])(?:[ \t]+|\n+)` để tách tại vị trí sau dấ
 
 **`RecursiveChunker.chunk` / `_split`** — hướng tiếp cận:
 Thuật toán thử separator theo thứ tự ưu tiên `\n\n`, `\n`, `. `, khoảng trắng rồi đến ký tự; các mảnh nhỏ được gộp lại nhưng không vượt quá `chunk_size`. Base case là văn bản rỗng, văn bản đã nhỏ hơn hoặc bằng `chunk_size`, hoặc không còn separator; ở trường hợp cuối hàm fallback sang cắt cứng theo số ký tự để tránh đệ quy vô hạn. Cách này ưu tiên giữ nguyên đoạn và câu trước khi phải cắt nhỏ hơn.
+
+**Chiến lược chunking cá nhân: Custom `HeadingChunker`**
+Theo chiến lược đã thống nhất trong báo cáo nhóm, tôi chia tài liệu theo heading/section Markdown để mỗi chunk giữ được tiêu đề của mục chính sách. Nếu một section dài hơn `chunk_size`, phần nội dung được chia tiếp bằng `RecursiveChunker` và heading được lặp lại ở đầu mỗi chunk để giữ ngữ cảnh. Cách này phù hợp với tài liệu Shopee có cấu trúc mục rõ ràng; độ dài chunk có thể không đồng đều nên cần kiểm tra khi benchmark.
+
+```python
+import re
+
+from src.chunking import RecursiveChunker
+
+
+class HeadingChunker:
+    def __init__(self, chunk_size: int = 500) -> None:
+        self.chunk_size = chunk_size
+
+    def chunk(self, text: str) -> list[str]:
+        if not text or not text.strip():
+            return []
+
+        sections = re.split(r"(?m)(?=^#{1,6}\s+)", text.strip())
+        chunks = []
+        for section in sections:
+            section = section.strip()
+            if not section:
+                continue
+            if len(section) <= self.chunk_size:
+                chunks.append(section)
+                continue
+
+            match = re.match(r"^(#{1,6}\s+[^\n]+)", section)
+            heading = match.group(1) if match else ""
+            body = section[match.end():].strip() if match else section
+            body_limit = max(1, self.chunk_size - len(heading) - 1)
+            pieces = RecursiveChunker(chunk_size=body_limit).chunk(body)
+            chunks.extend(
+                f"{heading}\n{piece}" if heading else piece
+                for piece in pieces
+            )
+        return chunks
+```
 
 ### Lớp EmbeddingStore
 
@@ -105,22 +144,22 @@ Các cặp 1 và 3 có ý nghĩa khá gần nhau nhưng điểm thấp, trong kh
 
 ## 5. Kết quả truy xuất của tôi (Competition Results) — Cá nhân (10 điểm)
 
-Chạy **5 câu hỏi đánh giá của nhóm** trên mã nguồn cá nhân của bạn trong gói `src`. **5 câu hỏi này phải trùng với các thành viên cùng nhóm** (xem `REPORT_NHOM.md`).
+Chạy **5 câu hỏi đánh giá đã thống nhất trong nhóm** trên mã nguồn cá nhân của bạn trong gói `src`. Dùng đúng các câu hỏi dưới đây để kết quả có thể so sánh với thành viên khác (xem `REPORT_NHOM.md`).
 
-> **Trạng thái:** Chưa thể hoàn thành mục này vì repo chưa có 5 benchmark query chính thức của nhóm; `report/REPORT_NHOM.md` vẫn đang là template. Không tự tạo query thay cho nhóm để tránh kết quả không khớp yêu cầu chấm.
+> **Trạng thái:** Nhóm đã thống nhất đủ 5 câu hỏi và câu trả lời chuẩn. Bảng dưới đây đã được cập nhật theo báo cáo nhóm; chưa có kết quả benchmark cá nhân cho cấu hình `HeadingChunker`, nên các ô kết quả đang để trống/chưa xác định. Câu 5 dùng bộ lọc metadata `{"audience": "seller"}` như yêu cầu trong báo cáo nhóm.
 
 | # | Câu hỏi (Query) | Top-1 Chunk truy xuất được (tóm tắt) | Điểm Score | Có liên quan không? (Relevant) | Câu trả lời của Agent (tóm tắt) |
 |---|-------|--------------------------------|-------|-----------|------------------------|
-| 1 | Chờ nhóm cung cấp | — | — | — | — |
-| 2 | Chờ nhóm cung cấp | — | — | — | — |
-| 3 | Chờ nhóm cung cấp | — | — | — | — |
-| 4 | Chờ nhóm cung cấp | — | — | — | — |
-| 5 | Chờ nhóm cung cấp | — | — | — | — |
+| 1 | Người mua có tối đa bao lâu để gửi yêu cầu trả hàng/hoàn tiền đối với đơn hàng thông thường và thực phẩm tươi sống hoặc đông lạnh? | Chưa chạy benchmark | — | Chưa xác định | — |
+| 2 | Trong những trường hợp nào người mua có thể yêu cầu trả hàng/hoàn tiền? Hãy liệt kê ít nhất bốn trường hợp. | Chưa chạy benchmark | — | Chưa xác định | — |
+| 3 | Shopee có hỗ trợ đổi sản phẩm trực tiếp không? Người mua nên làm gì nếu sản phẩm nhận được bị sai hoặc hư hỏng? | Chưa chạy benchmark | — | Chưa xác định | — |
+| 4 | Sau khi Shopee chấp nhận hoàn tiền, người mua thanh toán khi nhận hàng có thể nhận tiền qua đâu và mất bao lâu? | Chưa chạy benchmark | — | Chưa xác định | — |
+| 5 | Khi hệ thống ghi nhận đã trả hàng thành công nhưng Shop chưa nhận được hàng hoặc hàng hoàn gặp vấn đề, người bán phải phản hồi trong thời hạn bao lâu và thực hiện phản hồi ở đâu? (`metadata_filter={"audience": "seller"}`) | Chưa chạy benchmark | — | Chưa xác định | — |
 
-**Bao nhiêu câu hỏi trả về chunk có liên quan trong top-3?** Chưa xác định / 5
+**Bao nhiêu câu hỏi trả về chunk có liên quan trong top-3?** Chưa chạy benchmark / 5
 
 **Điều hay nhất tôi học được từ thành viên khác / nhóm khác (qua demo):**
-Chưa có dữ liệu demo hoặc kết quả benchmark chung trong repo để ghi nhận. Sẽ bổ sung sau khi nhóm thống nhất corpus, 5 query, gold answer và chiến lược của từng thành viên.
+Chưa có dữ liệu demo hoặc kết quả benchmark chung trong báo cáo nhóm để ghi nhận. Sẽ bổ sung sau buổi demo hoặc khi nhóm hoàn thành so sánh kết quả các chiến lược.
 
 ---
 
