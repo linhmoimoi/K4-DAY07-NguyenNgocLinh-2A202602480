@@ -44,7 +44,7 @@ Khi `overlap=100`, số chunk là `ceil((10000 - 100) / (500 - 100)) = ceil(9900
 
 ## 2. Hướng tiếp cận của tôi (My Approach) — Cá nhân (10 điểm)
 
-Giải thích cách tiếp cận của bạn khi lập trình (implement) các phần chính trong gói `src`.
+Phần này trình bày cách tôi triển khai các thành phần chính trong gói `src` và chiến lược chunking cá nhân.
 
 ### Các hàm chia nhỏ (Chunking Functions)
 
@@ -56,6 +56,8 @@ Thuật toán thử separator theo thứ tự ưu tiên `\n\n`, `\n`, `. `, kho�
 
 **Chiến lược chunking cá nhân: Custom `HeadingChunker`**
 Theo chiến lược đã thống nhất trong báo cáo nhóm, tôi chia tài liệu theo heading/section Markdown để mỗi chunk giữ được tiêu đề của mục chính sách. Nếu một section dài hơn `chunk_size`, phần nội dung được chia tiếp bằng `RecursiveChunker` và heading được lặp lại ở đầu mỗi chunk để giữ ngữ cảnh. Cách này phù hợp với tài liệu Shopee có cấu trúc mục rõ ràng; độ dài chunk có thể không đồng đều nên cần kiểm tra khi benchmark.
+
+Trong benchmark thực tế với `chunk_size=500`, chiến lược này tạo 186 chunks. Heading giúp giữ dấu vết của mục chính sách, nhưng các section dài tạo nhiều chunk lặp lại cùng heading và cạnh tranh vị trí trong top-3.
 
 ```python
 import re
@@ -140,26 +142,33 @@ Lệnh chạy: `py -3.11 -m pytest tests/ -v`
 **Kết quả nào bất ngờ nhất? Điều này nói gì về cách embeddings biểu diễn ý nghĩa?**
 Các cặp 1 và 3 có ý nghĩa khá gần nhau nhưng điểm thấp, trong khi một số cặp khác chủ đề vẫn có điểm dương. Điều này là có thể dự đoán vì lab đang dùng `MockEmbedder`: vector được tạo từ MD5 và số giả ngẫu nhiên xác định, không có khả năng hiểu ngữ nghĩa. Vì vậy kết quả này phù hợp để kiểm tra cấu trúc và công thức cosine, nhưng không nên dùng để kết luận chất lượng semantic retrieval.
 
+Các điểm trong mục này được tính bằng `MockEmbedder`; benchmark retrieval ở mục 5 dùng model `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2` nên hai nhóm điểm không được so sánh trực tiếp.
+
 ---
 
 ## 5. Kết quả truy xuất của tôi (Competition Results) — Cá nhân (10 điểm)
 
-Chạy **5 câu hỏi đánh giá đã thống nhất trong nhóm** trên mã nguồn cá nhân của bạn trong gói `src`. Dùng đúng các câu hỏi dưới đây để kết quả có thể so sánh với thành viên khác (xem `REPORT_NHOM.md`).
+Tôi chạy 5 câu hỏi chung của nhóm bằng `HeadingChunker(chunk_size=500)`, model `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2` và `top_k=3`. Corpus sau khi chia gồm 186 chunks. Việc chấm dựa trên vị trí tài liệu chuẩn và các cụm thông tin bắt buộc trong context top-3; đây là đánh giá khả năng trả lời từ context truy xuất, chưa phải câu trả lời do LLM tạo.
 
-> **Trạng thái:** Nhóm đã thống nhất đủ 5 câu hỏi và câu trả lời chuẩn. Bảng dưới đây đã được cập nhật theo báo cáo nhóm; chưa có kết quả benchmark cá nhân cho cấu hình `HeadingChunker`, nên các ô kết quả đang để trống/chưa xác định. Câu 5 dùng bộ lọc metadata `{"audience": "seller"}` như yêu cầu trong báo cáo nhóm.
+| # | Câu hỏi (Query) | Top-1 Chunk truy xuất được (tóm tắt) | Score | Đánh giá top-3 | Khả năng trả lời từ context |
+|---|-------|--------------------------------|------:|------------------|-----------------------------|
+| 1 | Người mua có tối đa bao lâu để gửi yêu cầu trả hàng/hoàn tiền đối với đơn hàng thông thường và thực phẩm tươi sống hoặc đông lạnh? | `chinh-sach-tra-hang-hoan-tien#11`: thời hạn 15 ngày | 0.8171 | Có — gold `quy-dinh-chung-tra-hang-hoan-tien#3` ở hạng 2 | Đủ hai mốc 15 ngày và 24 giờ; **1/2 điểm** |
+| 2 | Trong những trường hợp nào người mua có thể yêu cầu trả hàng/hoàn tiền? Hãy liệt kê ít nhất bốn trường hợp. | `chinh-sach-tra-hang-hoan-tien#12`: hỗ trợ sau thời hạn trả hàng | 0.6502 | Không — tài liệu chuẩn không vào top-3 | Thiếu nhiều trường hợp bắt buộc; **0/2 điểm** |
+| 3 | Shopee có hỗ trợ đổi sản phẩm trực tiếp không? Người mua nên làm gì nếu sản phẩm nhận được bị sai hoặc hư hỏng? | `tra-hang-do-doi-y#20`: bao bì và phụ kiện khi trả hàng | 0.7649 | Không — tài liệu chuẩn không vào top-3 | Thiếu kết luận “chưa hỗ trợ yêu cầu đổi hàng”; **0/2 điểm** |
+| 4 | Sau khi Shopee chấp nhận hoàn tiền, người mua thanh toán khi nhận hàng có thể nhận tiền qua đâu và mất bao lâu? | `huong-dan-gui-yeu-cau-tra-hang#6`: thời gian hoàn tiền 1–14 ngày làm việc | 0.7936 | Có một phần — gold `thoi-gian-nhan-tien-hoan#7` ở hạng 2 | Thiếu đầy đủ hai phương thức và mốc 2 ngày làm việc; **0/2 điểm** |
+| 5 | Khi hệ thống ghi nhận đã trả hàng thành công nhưng Shop chưa nhận được hàng hoặc hàng hoàn gặp vấn đề, người bán phải phản hồi trong thời hạn bao lâu và thực hiện phản hồi ở đâu? (`metadata_filter={"audience": "seller"}`) | `chinh-sach-tra-hang-hoan-tien#33`: người bán phản hồi trong 02 ngày | 0.7263 | Có — gold `quan-ly-don-tra-hang-nguoi-ban#6` ở hạng 2 | Đủ “2 ngày” và “Phản hồi đến Shopee”; **1/2 điểm** |
 
-| # | Câu hỏi (Query) | Top-1 Chunk truy xuất được (tóm tắt) | Điểm Score | Có liên quan không? (Relevant) | Câu trả lời của Agent (tóm tắt) |
-|---|-------|--------------------------------|-------|-----------|------------------------|
-| 1 | Người mua có tối đa bao lâu để gửi yêu cầu trả hàng/hoàn tiền đối với đơn hàng thông thường và thực phẩm tươi sống hoặc đông lạnh? | Chưa chạy benchmark | — | Chưa xác định | — |
-| 2 | Trong những trường hợp nào người mua có thể yêu cầu trả hàng/hoàn tiền? Hãy liệt kê ít nhất bốn trường hợp. | Chưa chạy benchmark | — | Chưa xác định | — |
-| 3 | Shopee có hỗ trợ đổi sản phẩm trực tiếp không? Người mua nên làm gì nếu sản phẩm nhận được bị sai hoặc hư hỏng? | Chưa chạy benchmark | — | Chưa xác định | — |
-| 4 | Sau khi Shopee chấp nhận hoàn tiền, người mua thanh toán khi nhận hàng có thể nhận tiền qua đâu và mất bao lâu? | Chưa chạy benchmark | — | Chưa xác định | — |
-| 5 | Khi hệ thống ghi nhận đã trả hàng thành công nhưng Shop chưa nhận được hàng hoặc hàng hoàn gặp vấn đề, người bán phải phản hồi trong thời hạn bao lâu và thực hiện phản hồi ở đâu? (`metadata_filter={"audience": "seller"}`) | Chưa chạy benchmark | — | Chưa xác định | — |
+**Kết quả tổng hợp:**
 
-**Bao nhiêu câu hỏi trả về chunk có liên quan trong top-3?** Chưa chạy benchmark / 5
+- Tài liệu chuẩn xuất hiện trong top-3 ở **3/5 câu**: Q1, Q4 và Q5.
+- Context top-3 đủ thông tin bắt buộc ở **2/5 câu**: Q1 và Q5.
+- Tổng điểm retrieval: **2/10**.
+- Kết quả chi tiết được lưu tại `report/KET_QUA_BENCHMARK_HEADING_CHUNKER.txt`.
 
-**Điều hay nhất tôi học được từ thành viên khác / nhóm khác (qua demo):**
-Chưa có dữ liệu demo hoặc kết quả benchmark chung trong báo cáo nhóm để ghi nhận. Sẽ bổ sung sau buổi demo hoặc khi nhóm hoàn thành so sánh kết quả các chiến lược.
+**Lọc bằng metadata:** Ở Q5, `metadata_filter={"audience": "seller"}` trả về cùng top-3 và cùng score như khi không lọc. Bộ lọc chưa cải thiện thứ hạng vì chunk top-1 có `audience="both"` và vẫn được xem là phù hợp với truy vấn dành cho người bán.
+
+**Điều hay nhất tôi học được từ kết quả của các thành viên khác:**
+Điểm quan sát cao nhất của nhóm là 4/10 với `RecursiveChunker + TF-IDF`, nhưng các thành viên chưa dùng cùng embedding backend nên chưa thể quy khác biệt điểm hoàn toàn cho chunker. Bài học quan trọng nhất là phải cố định corpus, embedding, runner, `top_k` và cách chấm khi so sánh chiến lược. Q2 cho thấy danh sách dài dễ bị phân mảnh qua nhiều chunk; Q3 cho thấy truy vấn có từ “đổi” dễ bị kéo sang tài liệu “đổi ý” dù thiếu câu phủ định cần thiết. Nếu cải thiện `HeadingChunker`, tôi sẽ loại các chunk chỉ có heading, xử lý riêng bảng/danh sách và thêm reranking hoặc giới hạn số chunk từ cùng một tài liệu để giảm cạnh tranh trong top-3.
 
 ---
 
@@ -171,5 +180,5 @@ Chưa có dữ liệu demo hoặc kết quả benchmark chung trong báo cáo nh
 | Hướng tiếp cận của tôi (My Approach) | 10 / 10 |
 | Hoàn thiện code (Core Implementation — tests) | 30 / 30 |
 | Dự đoán độ tương tự (Similarity Predictions) | 5 / 5 |
-| Kết quả truy xuất của tôi (Competition Results) | Chưa xác định / 10 |
-| **Tổng phần cá nhân tạm tính** | **50 / 60, chờ benchmark** |
+| Kết quả truy xuất của tôi (Competition Results) | 2 / 10 |
+| **Tổng phần cá nhân** | **52 / 60** |
