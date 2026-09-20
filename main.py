@@ -7,6 +7,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 from src.agent import KnowledgeBaseAgent
+from src.corpus import chunk_documents, load_policy_documents
 from src.embeddings import (
     EMBEDDING_PROVIDER_ENV,
     GEMINI_EMBEDDING_MODEL,
@@ -19,15 +20,6 @@ from src.embeddings import (
 )
 from src.models import Document
 from src.store import EmbeddingStore
-
-SAMPLE_FILES = [
-    "data/python_intro.txt",
-    "data/vector_store_notes.md",
-    "data/rag_system_design.md",
-    "data/customer_support_playbook.txt",
-    "data/chunking_experiment_report.md",
-    "data/vi_retrieval_notes.md",
-]
 
 
 def load_documents_from_files(file_paths: list[str]) -> list[Document]:
@@ -65,25 +57,33 @@ def demo_llm(prompt: str) -> str:
 
 
 def run_manual_demo(question: str | None = None, sample_files: list[str] | None = None) -> int:
-    files = sample_files or SAMPLE_FILES
     query = question or "Summarize the key information from the loaded files."
 
     print("=== Manual File Test ===")
-    print("Accepted file types: .md, .txt")
-    print("Input file list:")
-    for file_path in files:
-        print(f"  - {file_path}")
+    if sample_files is None:
+        source_documents = load_policy_documents()
+        print("Corpus: Shopee e-commerce policies")
+        source_folder = source_documents[0].metadata["source"].rsplit("/", 1)[0]
+        print(f"Loaded source folder: {source_folder}")
+    else:
+        print("Accepted file types: .md, .txt")
+        print("Input file list:")
+        for file_path in sample_files:
+            print(f"  - {file_path}")
+        source_documents = load_documents_from_files(sample_files)
 
-    docs = load_documents_from_files(files)
-    if not docs:
+    if not source_documents:
         print("\nNo valid input files were loaded.")
-        print("Create files matching the sample paths above, then rerun:")
+        print("Check the configured input files, then rerun:")
         print("  python3 main.py")
         return 1
 
-    print(f"\nLoaded {len(docs)} documents")
-    for doc in docs:
+    print(f"\nLoaded {len(source_documents)} source documents")
+    for doc in source_documents:
         print(f"  - {doc.id}: {doc.metadata['source']}")
+
+    docs = chunk_documents(source_documents)
+    print(f"Created {len(docs)} searchable chunks")
 
     load_dotenv(override=False)
     provider = os.getenv(EMBEDDING_PROVIDER_ENV, "mock").strip().lower()
@@ -110,12 +110,13 @@ def run_manual_demo(question: str | None = None, sample_files: list[str] | None 
     store = EmbeddingStore(collection_name="manual_test_store", embedding_fn=embedder)
     store.add_documents(docs)
 
-    print(f"\nStored {store.get_collection_size()} documents in EmbeddingStore")
+    print(f"\nStored {store.get_collection_size()} chunks in EmbeddingStore")
     print("\n=== EmbeddingStore Search Test ===")
     print(f"Query: {query}")
     search_results = store.search(query, top_k=3)
     for index, result in enumerate(search_results, start=1):
-        print(f"{index}. score={result['score']:.3f} source={result['metadata'].get('source')}")
+        source = result["metadata"].get("source_url") or result["metadata"].get("source")
+        print(f"{index}. score={result['score']:.3f} source={source}")
         print(f"   content preview: {result['content'][:120].replace(chr(10), ' ')}...")
 
     print("\n=== KnowledgeBaseAgent Test ===")

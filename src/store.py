@@ -98,11 +98,24 @@ class EmbeddingStore:
                 record
                 for record in self._store
                 if all(
-                    record["metadata"].get(key) == expected_value
+                    self._metadata_matches(record["metadata"], key, expected_value)
                     for key, expected_value in metadata_filter.items()
                 )
             ]
         return self._search_records(query, candidates, top_k)
+
+    @staticmethod
+    def _metadata_matches(metadata: dict[str, Any], key: str, expected_value: Any) -> bool:
+        actual_value = metadata.get(key)
+        if actual_value == expected_value:
+            return True
+        # A policy marked "both" applies to either audience-specific query.
+        return (
+            key == "audience"
+            and isinstance(expected_value, str)
+            and expected_value in {"buyer", "seller"}
+            and actual_value == "both"
+        )
 
     def delete_document(self, doc_id: str) -> bool:
         """

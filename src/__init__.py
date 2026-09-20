@@ -6,6 +6,7 @@ from .chunking import (
     SentenceChunker,
     compute_similarity,
 )
+from .corpus import chunk_documents, load_policy_documents
 from .embeddings import (
     EMBEDDING_PROVIDER_ENV,
     GEMINI_EMBEDDING_MODEL,
@@ -27,6 +28,8 @@ __all__ = [
     "RecursiveChunker",
     "ChunkingStrategyComparator",
     "compute_similarity",
+    "load_policy_documents",
+    "chunk_documents",
     "EmbeddingStore",
     "KnowledgeBaseAgent",
     "MockEmbedder",
